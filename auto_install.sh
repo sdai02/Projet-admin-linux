@@ -1,13 +1,20 @@
 #!/bin/bash 
 
+
+
+loadkeys fr
+
+timedatectl
+
+
 # manipule et affiche les partitions du disque /dev/sda
 
-echo -e "label: gpt\n,1G,U\n,,L" |sfdisk /dev/sda
+echo -e "label: gpt\n,1G,L\n,4G,S\n,,L" |sfdisk /dev/sda
 
 
-# chiffrement de la partition dev/sda2
-cryptsetup luksFormat --batch-mode /dev/sda2
-echo "azerty123" | cryptsetup open --type luks /dev/sda2 lvm
+# chiffrement de la partition dev/sda3
+cryptsetup luksFormat --batch-mode /dev/sda3
+echo "azerty123" | cryptsetup open --type luks /dev/sda3 lvm
 
 # creation d'un volume physique pour lvm
 pvcreate /dev/mapper/lvm
@@ -25,11 +32,8 @@ lvcreate -L 5G volgroup0 -n share
 # Partition  chiffrée (LUKS) 10G
 lvcreate -L 10G volgroup0 -n private
 
-# Swap
-lvcreate -L 4G volgroup0 -n swap
-
 # Home
-lvcreate -L 20G volgroup0 -n home
+lvcreate -l 100%FREE volgroup0 -n home
 
 # chiffrement LUKS de private
 cryptsetup luksFormat --batch-mode /dev/volgroup0/private
@@ -37,7 +41,7 @@ cryptsetup luksFormat --batch-mode /dev/volgroup0/private
 echo "azerty123" | cryptsetup open --type luks /dev/volgroup0/private secretproject
 
 mkfs.ext4 /dev/mapper/secretproject
-
+mount /dev/volgroup0/private /mnt/home/private
 
 # Active les modules nécessaires
 modprobe dm_mod
@@ -51,30 +55,33 @@ mkfs.ext4 /dev/volgroup0/home
 mkfs.ext4 /dev/volgroup0/vmsoftware
 mkfs.ext4 /dev/volgroup0/share
 
+
+
+
+
 # Montage des partitions
 mount /dev/volgroup0/root /mnt
-mkdir -p /mnt/boot /mnt/vmsoftware /mnt/share 
-mount /dev/sda1 /mnt/boot
+mkdir -p  /mnt/vmsoftware /mnt/share /mnt/home /mnt/private
 mount /dev/volgroup0/home /mnt/home
-mount /dev/volgroup0/vmsoftware /mnt/vmsoftware
-mount /dev/volgroup0/share /mnt/share
+mount /dev/volgroup0/vmsoftware /mnt/home/admin/vmsoftware
+mount /dev/volgroup0/share /mnt/home/share
 
 # Active le swap
-mkswap /dev/volgroup0/swap
-swapon /dev/volgroup0/swap
+mkswap /dev/sda2
+swapon /dev/sda2
 
 # Installation des paquets essentiels
-pacstrap -i /mnt base linux linux-firmware
+pacstrap /mnt base --noconfirm
 
 # Configuration du système
-genfstab -U /mnt >> /mnt/etc/fstab
+genfstab -U -p /mnt >> /mnt/etc/fstab
 
 # Utilisation de EOF pour exécuter des programmes sur une seul block
 arch-chroot /mnt <<EOF
 
 # ajout du fuseau horaire
 
-ls -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
+ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 
 hwclock --systohc
 
@@ -87,57 +94,70 @@ echo "LANG=fr.UTF-8" > /etc/locale.conf
 
 echo "pc_de_travail" > /etc/hostname
 
-# installation des paquets
-
-pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim wim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch
-
-
-
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB 
-
-grub-mkconfig -o /boot/grub/grub.cfg
-
 # Création des utilisateurs et définir les droits d'acces
 
-useradd -m -G wheel -s /bin/bash user
-echo "user:azerty123" | chpasswd
+useradd -m -G wheel -s /bin/bash admin
+echo "admin:azerty123" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 useradd -m -s /bin/bash study
 echo "study:azerty123" | chpasswd
 
-
-mkdir -p /mnt/share
-chown user:study /mnt/share
+mkdir -p /mnt/home/share
+chown admin:study /mnt/home/share
 chmod 770 /mnt/share
-chown user:user /mnt/vmsoftware
-chmod 700 /mnt/vmsoftware
-usermod -aG vboxusers user
+
+
+# installation des paquets
+
+pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch
+
+
 
 # Configuration de openssh
 echo -e "Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no" >> /etc/ssh/sshd_config.d/ssh.conf
 
 ssh-keygen -t ed25519 
 
-systemctl enable NetworkManager
-systemctl enable sshd
-systemctl start sshd
+
 
 # Configuration de i3
 
 mkdir -p /home/user/.config/i3 
 cp /etc/i3/config /home/user/.config/i3/config
-chown -R user:user /home/user/.config/i3
+chown -R admin:admin /home/user/.config/i3
+
 
 echo "exec i3" > /home/user/.xinitrc
-chown user:user /home/user/.xinitrc
+chown admin:admin /home/user/.xinitrc
+
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' /etc/mkinitcpio.conf
+
+
+pacman -S linux linux-headers linux-lts linux-lts-headers
+
+
+mkinitcpio -P
+
+sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=\/dev\/sda3:volgroup0"/' /etc/default/grub
+
+
+mkdir /boot/EFI
+
+mount /dev/sda1 /boot/EFI
+
+grub-install --target=x86_64-efi --bootloader-id=grub_uefi --recheck
+
+echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/defautlt/grub
+
+grub-mkconfig -o /boot/grub/grub.cfg
 
 systemctl enable lightdm
-
-sudo pacman -Syu
+systemctl enable NetworkManager
+systemctl enable sshd
+systemctl start sshd
 
 EOF
 
-umount -R /mnt
-swapoff -a
+umount -a
 reboot

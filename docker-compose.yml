@@ -1,0 +1,12 @@
+
+services:
+  archiso:
+    build: .
+    container_name: archiso-container
+    volumes:
+      - .:/root/archiso  # Lier tous les fichiers du dossier courant avec /root/archiso dans le conteneur
+    stdin_open: true  # Garder l'entrée interactive ouverte
+    tty: true          # Garder le terminal actif
+    environment:
+      - TERM=xterm-256color
+    command: /bin/bash  # Démarre bash pour interagir avec le conteneur
