@@ -30,6 +30,8 @@ lvcreate -l 100%FREE volgroup0 -n home
 # Chiffrement LUKS de private
 echo -n "azerty123" | cryptsetup --batch-mode luksFormat /dev/volgroup0/private
 echo -n "azerty123" | cryptsetup open --type luks /dev/volgroup0/private secretproject
+mkfs.ext4 /dev/mapper/secretproject
+mount /dev/volgroup0/private /mnt/home/private
 
 # Formatage des partitions
 mkfs.fat -F 32 /dev/sda1
@@ -37,15 +39,13 @@ mkfs.ext4 /dev/volgroup0/root
 mkfs.ext4 /dev/volgroup0/home
 mkfs.ext4 /dev/volgroup0/vmsoftware
 mkfs.ext4 /dev/volgroup0/share
-mkfs.ext4 /dev/mapper/secretproject
 
 # Création des répertoires avant de monter les partitions
 mkdir -p /mnt/vmsoftware /mnt/share /mnt/home /mnt/private
 mount /dev/volgroup0/root /mnt
 mount /dev/volgroup0/home /mnt/home
-mount /dev/volgroup0/vmsoftware /mnt/home/admin/vmsoftware
+mount /dev/volgroup0/vmsoftware /mnt/home/vmsoftware
 mount /dev/volgroup0/share /mnt/home/share
-mount /dev/volgroup0/private /mnt/home/private
 
 # Active le swap
 mkswap /dev/sda2
@@ -80,23 +80,23 @@ useradd -m -s /bin/bash study
 echo "study:azerty123" | chpasswd
 
 # Créer un dossier partagé et configurer les permissions
-mkdir -p /home/admin/share
-chown admin:study /home/admin/share
-chmod 770 /home/admin/share
+mkdir -p /home/share
+chown admin:study /home/share
+chmod 770 /home/share
 
 # Installation des paquets nécessaires
 pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch
 
 # Configuration de OpenSSH
 echo -e "Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no" >> /etc/ssh/sshd_config
-ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ""
+ssh-keygen -t ed25519 -f /home/.ssh/id_ed25519 -N ""
 
 # Configuration de i3
-mkdir -p /home/admin/.config/i3
-cp /etc/i3/config /home/admin/.config/i3/config
-chown -R admin:admin /home/admin/.config/i3
-echo "exec i3" > /home/admin/.xinitrc
-chown admin:admin /home/admin/.xinitrc
+mkdir -p /home/.config/i3
+cp /etc/i3/config /home/.config/i3/config
+chown -R admin:admin /home/.config/i3
+echo "exec i3" > /home/.xinitrc
+chown admin:admin /home/.xinitrc
 
 # Configuration du noyau
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' /etc/mkinitcpio.conf
