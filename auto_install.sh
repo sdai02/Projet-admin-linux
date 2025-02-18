@@ -4,12 +4,12 @@
 
 loadkeys fr
 
-timedatectl
+timedatectl set-ntp true
 
 
 # manipule et affiche les partitions du disque /dev/sda
 
-echo -e "label: gpt\n,1G,L\n,4G,S\n,,L" |sfdisk /dev/sda
+echo -e "label: gpt\n,1G,ef00\n,4G,S\n,,L" |sfdisk /dev/sda
 
 
 # chiffrement de la partition dev/sda3
@@ -40,13 +40,7 @@ cryptsetup luksFormat --batch-mode /dev/volgroup0/private
 
 echo "azerty123" | cryptsetup open --type luks /dev/volgroup0/private secretproject
 
-mkfs.ext4 /dev/mapper/secretproject
-mount /dev/volgroup0/private /mnt/home/private
 
-# Active les modules nécessaires
-modprobe dm_mod
-vgscan
-vgchange -ay
 
 # Formatatage des partitions
 mkfs.fat -F 32 /dev/sda1
@@ -54,6 +48,7 @@ mkfs.ext4 /dev/volgroup0/root
 mkfs.ext4 /dev/volgroup0/home
 mkfs.ext4 /dev/volgroup0/vmsoftware
 mkfs.ext4 /dev/volgroup0/share
+mkfs.ext4 /dev/mapper/secretproject
 
 
 
@@ -65,6 +60,8 @@ mkdir -p  /mnt/vmsoftware /mnt/share /mnt/home /mnt/private
 mount /dev/volgroup0/home /mnt/home
 mount /dev/volgroup0/vmsoftware /mnt/home/admin/vmsoftware
 mount /dev/volgroup0/share /mnt/home/share
+mount /dev/volgroup0/private /mnt/home/private
+
 
 # Active le swap
 mkswap /dev/sda2
@@ -146,7 +143,7 @@ mkdir /boot/EFI
 
 mount /dev/sda1 /boot/EFI
 
-grub-install --target=x86_64-efi --bootloader-id=grub_uefi --recheck
+grub-install --target=x86_64-efi --efi-directory=/boot/EFI --bootloader-id=grub_uefi --recheck
 
 echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/defautlt/grub
 
