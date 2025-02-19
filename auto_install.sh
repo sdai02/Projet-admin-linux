@@ -27,6 +27,13 @@ lvcreate -L 10G volgroup0 -n private
 # Home
 lvcreate -l 100%FREE volgroup0 -n home
 
+
+
+vgscan
+lvscan
+vgchange -ay
+
+
 # Chiffrement LUKS de private
 echo -n "azerty123" | cryptsetup --batch-mode luksFormat /dev/volgroup0/private
 echo -n "azerty123" | cryptsetup open --type luks /dev/volgroup0/private secretproject
@@ -40,12 +47,22 @@ mkfs.ext4 /dev/volgroup0/home
 mkfs.ext4 /dev/volgroup0/vmsoftware
 mkfs.ext4 /dev/volgroup0/share
 
+
+
 # Création des répertoires avant de monter les partitions
-mkdir -p /mnt/vmsoftware /mnt/share /mnt/home /mnt/private
+mkdir -p /mnt
+mkdir -p /mnt/home
+mkdir -p /mnt/private
+mkdir -p /mnt/vmsoftware
+mkdir -p /mnt/share  
+
+
+
 mount /dev/volgroup0/root /mnt
 mount /dev/volgroup0/home /mnt/home
-mount /dev/volgroup0/vmsoftware /mnt/home/vmsoftware
-mount /dev/volgroup0/share /mnt/home/share
+mount /dev/volgroup0/vmsoftware /mnt/vmsoftware
+mount /dev/volgroup0/share /mnt/share
+
 
 # Active le swap
 mkswap /dev/sda2
@@ -58,7 +75,7 @@ pacstrap /mnt base --noconfirm
 genfstab -U -p /mnt >> /mnt/etc/fstab
 
 # Utilisation de EOF pour exécuter des programmes sur une seule block
-arch-chroot /mnt <<EOF
+arch-chroot /mnt << EOF
 
 # Ajouter le fuseau horaire
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
@@ -80,12 +97,18 @@ useradd -m -s /bin/bash study
 echo "study:azerty123" | chpasswd
 
 # Créer un dossier partagé et configurer les permissions
-mkdir -p /home/share
-chown admin:study /home/share
-chmod 770 /home/share
+mkdir -p /share
+chown admin:study /share
+sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=\/dev\/sda3:volgroup0"/' /etc/default/grub
+mkdir -p /boot/EFI
+mount /dev/sda1 /mnt/boot/EFI
+grub-install --target=x86_64-efi --efi-directory=/mnt/boot/EFI --bootloader-id=grub_uefi --recheck
+echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+grub-mkconfig -o /boot/grub/grub.cfg
+chmod 770 /share
 
 # Installation des paquets nécessaires
-pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch
+pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
 
 # Configuration de OpenSSH
 echo -e "Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no" >> /etc/ssh/sshd_config
@@ -106,8 +129,8 @@ mkinitcpio -P
 # Configuration de GRUB
 sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=\/dev\/sda3:volgroup0"/' /etc/default/grub
 mkdir -p /boot/EFI
-mount /dev/sda1 /boot/EFI
-grub-install --target=x86_64-efi --efi-directory=/boot/EFI --bootloader-id=grub_uefi --recheck
+mount /dev/sda1 /mnt/boot/EFI
+grub-install --target=x86_64-efi --efi-directory=/mnt/boot/EFI --bootloader-id=grub_uefi --recheck
 echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
 grub-mkconfig -o /boot/grub/grub.cfg
 
@@ -119,8 +142,6 @@ systemctl start sshd
 
 EOF
 
+
 # Démonter toutes les partitions avant de redémarrer
 umount -a
-
-# Redémarrage
-reboot
