@@ -81,7 +81,7 @@ Le script réalise les étapes suivantes :
    Le script se chargera de tout, y compris la partition de votre disque, la configuration du système, l'installation de paquets et la configuration des utilisateurs.
 
 ### 3. **Redémarrage du système**
-   - Une fois le script terminé, le système sera redémarré. Vous pourrez ensuite vous connecter avec les utilisateurs `user` et `study`.
+   - Une fois le script terminé, le système sera redémarré. Vous pourrez ensuite vous connecter avec les utilisateurs `admin` et `study`.
 
 ## Post-installation
 
@@ -90,10 +90,10 @@ Le script réalise les étapes suivantes :
    - Générez une clé SSH avec `ssh-keygen -t ed25519` et copiez-la dans `~/.ssh/authorized_keys` sur l'utilisateur cible pour vous connecter.
 
 ### 2. **Utilisation de VirtualBox**
-   - Après avoir ajouté l'utilisateur `user` au groupe `vboxusers`, l'utilisateur pourra utiliser VirtualBox pour créer des machines virtuelles.
+   - Après avoir ajouté l'utilisateur `admin` au groupe `vboxusers`, l'utilisateur pourra utiliser VirtualBox pour créer des machines virtuelles.
    
 ### 3. **Lancement de l'environnement i3**
-   - Une fois que vous vous connectez en tant que `user`, vous pouvez lancer l'environnement de bureau i3 en utilisant `startx` ou via le gestionnaire de connexion `lightdm`.
+   - Une fois que vous vous connectez en tant que `admin`, vous pouvez lancer l'environnement de bureau i3 en utilisant `startx` ou via le gestionnaire de connexion `lightdm`.
 
 ## Remarque importante
 
