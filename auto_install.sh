@@ -1,94 +1,105 @@
-#!/bin/bash 
+#!/bin/bash
 
-# Manipule et affiche les partitions du disque /dev/sda
-echo -e "label: gpt\n,1G,U\n,4G,S\n,,L" | sfdisk /dev/sda
-partprobe /dev/sda
+set -euo pipefail
 
-# Chiffrement de la partition dev/sda3
-echo -n "azerty123"| cryptsetup --batch-mode luksFormat /dev/sda3
-echo -n "azerty123" | cryptsetup open --type luks /dev/sda3 lvm
+# == FONCTIONS == #
 
-# Création d'un volume physique pour lvm
-pvcreate /dev/mapper/lvm
-vgcreate volgroup0 /dev/mapper/lvm
+create_partitions() {
+    echo "== Mise à jour de la base de données des paquets =="
+    pacman -Syy --noconfirm
 
-# Root 30G
-lvcreate -L 30GB volgroup0 -n root
+    if [ -e /dev/sda1 ] && [ -e /dev/sda2 ] && [ -e /dev/sda3 ]; then
+        echo "Les partitions existent déjà. Ignorer la création."
+        return 0
+    fi
 
-# VirtualBox 10G
-lvcreate -L 10G volgroup0 -n vmsoftware
+    echo "== Création des partitions GPT sur /dev/sda =="
+    echo -e "label: gpt\n,1G,U\n,4G,S\n,,L" | sfdisk /dev/sda
+    partprobe /dev/sda
+}
 
-# Dossier partagé 5G
-lvcreate -L 5G volgroup0 -n share
+crypt_and_format_partitions() {
+    echo "== Installation de cryptsetup et lvm2 =="
+    pacman -Sy cryptsetup lvm2 --noconfirm
 
-# Partition chiffrée (LUKS) 10G
-lvcreate -L 10G volgroup0 -n private
+    echo "== Chiffrement de /dev/sda3 =="
+    echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
+    echo -n "azerty123" | cryptsetup open /dev/sda3 lvm -
 
-# Home
-lvcreate -l 100%FREE volgroup0 -n home
+    echo "== Initialisation de LVM =="
+    pvcreate /dev/mapper/lvm
+    vgcreate volgroup0 /dev/mapper/lvm
 
+    echo "== Création des volumes logiques =="
+    lvcreate -L 30G volgroup0 -n root
+    lvcreate -L 10G volgroup0 -n vmsoftware
+    lvcreate -L 5G volgroup0 -n share
+    lvcreate -L 10G volgroup0 -n private
+    lvcreate -l 100%FREE volgroup0 -n home
 
+    vgchange -ay
+}
 
-vgscan
-lvscan
-vgchange -ay
+luks_and_format_private() {
+    echo "== Chiffrement de volgroup0/private =="
+    echo -n "azerty123" | cryptsetup luksFormat /dev/volgroup0/private -
+    echo -n "azerty123" | cryptsetup open /dev/volgroup0/private secretproject -
 
+    echo "== Formatage des partitions =="
+    mkfs.fat -F32 /dev/sda1
+    mkfs.ext4 /dev/volgroup0/root
+    mkfs.ext4 /dev/volgroup0/home
+    mkfs.ext4 /dev/volgroup0/vmsoftware
+    mkfs.ext4 /dev/volgroup0/share
+    mkfs.ext4 /dev/mapper/secretproject
 
-# Chiffrement LUKS de private
-echo -n "azerty123" | cryptsetup --batch-mode luksFormat /dev/volgroup0/private
-echo -n "azerty123" | cryptsetup open --type luks /dev/volgroup0/private secretproject
-mkfs.ext4 /dev/mapper/secretproject
-mount /dev/volgroup0/private /mnt/home/private
+    echo "== Configuration du swap =="
+    mkswap /dev/sda2
+    swapon /dev/sda2
 
-# Formatage des partitions
-mkfs.fat -F 32 /dev/sda1
-mkfs.ext4 /dev/volgroup0/root
-mkfs.ext4 /dev/volgroup0/home
-mkfs.ext4 /dev/volgroup0/vmsoftware
-mkfs.ext4 /dev/volgroup0/share
+    echo "== Montage des partitions =="
+    mount /dev/volgroup0/root /mnt
+    mkdir -p /mnt/{boot/efi,home,vmsoftware,share}
+    mount /dev/sda1 /mnt/boot/efi
+    mount /dev/volgroup0/home /mnt/home
+    mount /dev/volgroup0/vmsoftware /mnt/vmsoftware
+    mount /dev/volgroup0/share /mnt/share
 
+    mkdir -p /mnt/home/private
+    mount /dev/mapper/secretproject /mnt/home/private
+}
 
+mirroring() {
+    echo "== Installation et configuration de reflector =="
+    pacman -Sy reflector --noconfirm
+    reflector --country France --protocol https --latest 10 --sort rate --save /etc/pacman.d/mirrorlist
+}
 
-# Création des répertoires avant de monter les partitions
-mkdir -p /mnt
-mkdir -p /mnt/home
-mkdir -p /mnt/private
-mkdir -p /mnt/vmsoftware
-mkdir -p /mnt/share  
+config() {
+    echo "== Installation des paquets de base =="
+    pacstrap -K /mnt base linux linux-firmware --noconfirm
 
+    echo "== Génération de fstab =="
+    genfstab -U /mnt >> /mnt/etc/fstab
 
+    arch-chroot /mnt /bin/bash << 'EOF'
 
-mount /dev/volgroup0/root /mnt
-mount /dev/volgroup0/home /mnt/home
-mount /dev/volgroup0/vmsoftware /mnt/vmsoftware
-mount /dev/volgroup0/share /mnt/share
+echo "== Configuration système =="
+pacman -Syy --noconfirm
 
+# Configuration clavier AZERTY pour initramfs
+echo "KEYMAP=fr" > /etc/vconsole.conf
 
-# Active le swap
-mkswap /dev/sda2
-swapon /dev/sda2
-
-# Installation des paquets essentiels
-pacstrap /mnt base --noconfirm
-
-# Configuration du système
-genfstab -U -p /mnt >> /mnt/etc/fstab
-
-# Utilisation de EOF pour exécuter des programmes sur une seule block
-arch-chroot /mnt << EOF
-
-# Ajouter le fuseau horaire
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 hwclock --systohc
 
-# Configuration de la langue
+echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen
 locale-gen
-echo "LANG=fr.UTF-8" > /etc/locale.conf
+echo "LANG=fr_FR.UTF-8" > /etc/locale.conf
 
-# Configuration du hostname
 echo "pc_de_travail" > /etc/hostname
 
-# Création des utilisateurs et définir les droits d'accès
+echo "== Création des utilisateurs =="
 useradd -m -G wheel -s /bin/bash admin
 echo "admin:azerty123" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
@@ -96,52 +107,65 @@ echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 useradd -m -s /bin/bash study
 echo "study:azerty123" | chpasswd
 
-# Créer un dossier partagé et configurer les permissions
 mkdir -p /share
 chown admin:study /share
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=\/dev\/sda3:volgroup0"/' /etc/default/grub
-mkdir -p /boot/EFI
-mount /dev/sda1 /mnt/boot/EFI
-grub-install --target=x86_64-efi --efi-directory=/mnt/boot/EFI --bootloader-id=grub_uefi --recheck
-echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
-grub-mkconfig -o /boot/grub/grub.cfg
 chmod 770 /share
 
-# Installation des paquets nécessaires
-pacman -S --noconfirm grub efibootmgr sudo networkmanager openssh vim git wget curl lightdm lightdm-gtk-greeter i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
+echo "== Installation de paquets complémentaires =="
+pacman -S --noconfirm \
+    grub efibootmgr sudo networkmanager openssh \
+    vim git wget curl lightdm lightdm-gtk-greeter \
+    i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi \
+    alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
 
-# Configuration de OpenSSH
+echo "== Configuration SSH =="
 echo -e "Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no" >> /etc/ssh/sshd_config
-ssh-keygen -t ed25519 -f /home/.ssh/id_ed25519 -N ""
+mkdir -p /home/admin/.ssh
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ""
+chown -R admin:admin /home/admin/.ssh
 
-# Configuration de i3
-mkdir -p /home/.config/i3
-cp /etc/i3/config /home/.config/i3/config
-chown -R admin:admin /home/.config/i3
-echo "exec i3" > /home/.xinitrc
-chown admin:admin /home/.xinitrc
+echo "== Configuration i3 =="
+mkdir -p /home/admin/.config/i3
+cp /etc/i3/config /home/admin/.config/i3/config
+echo "exec i3" > /home/admin/.xinitrc
+chown -R admin:admin /home/admin/.config /home/admin/.xinitrc
 
-# Configuration du noyau
+echo "== mkinitcpio HOOKS =="
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' /etc/mkinitcpio.conf
-pacman -S --noconfirm linux linux-headers linux-lts linux-lts-headers
+
+echo "== Regénération de l'initramfs =="
 mkinitcpio -P
 
-# Configuration de GRUB
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=""/GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=\/dev\/sda3:volgroup0"/' /etc/default/grub
-mkdir -p /boot/EFI
-mount /dev/sda1 /mnt/boot/EFI
-grub-install --target=x86_64-efi --efi-directory=/mnt/boot/EFI --bootloader-id=grub_uefi --recheck
+echo "== Configuration GRUB =="
+sed -i 's|GRUB_CMDLINE_LINUX_DEFAULT=".*"|GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=/dev/sda3:volgroup0 root=/dev/mapper/volgroup0-root"|' /etc/default/grub
 echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+echo 'GRUB_TERMINAL_INPUT=console' >> /etc/default/grub
+
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Activation des services
+echo "== Activation des services =="
 systemctl enable lightdm
 systemctl enable NetworkManager
 systemctl enable sshd
-systemctl start sshd
 
 EOF
+}
 
 
-# Démonter toutes les partitions avant de redémarrer
-umount -a
+reboot_system() {
+    echo "== Démontage et redémarrage =="
+    umount -R /mnt
+    reboot
+}
+
+# == EXECUTION == #
+
+create_partitions
+crypt_and_format_partitions
+luks_and_format_private
+mirroring
+config
+reboot_system # <- Décommente ceci si tu veux rebooter à la fin automatiquement
+
+echo "✅ Installation terminée avec succès !"
