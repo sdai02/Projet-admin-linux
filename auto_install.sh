@@ -9,18 +9,15 @@ create_partitions() {
 }
 
 crypt_and_format_partitions() {
-    echo "== Installation de cryptsetup et lvm2 =="
     pacman -Sy --noconfirm cryptsetup lvm2
 
     echo "== Chiffrement de /dev/sda3 =="
     echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
     echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
 
-    echo "== Initialisation de LVM =="
     pvcreate /dev/mapper/cryptlvm
     vgcreate volgroup0 /dev/mapper/cryptlvm
 
-    echo "== Création des volumes logiques =="
     lvcreate -L 30G volgroup0 -n root
     lvcreate -L 10G volgroup0 -n vmsoftware
     lvcreate -L 5G volgroup0 -n share
@@ -34,7 +31,6 @@ luks_and_format_private() {
     echo -n "azerty123" | cryptsetup luksFormat /dev/volgroup0/private -
     echo -n "azerty123" | cryptsetup open /dev/volgroup0/private secretproject -
 
-    echo "== Formatage =="
     mkfs.fat -F32 /dev/sda1
     mkfs.ext4 /dev/volgroup0/root
     mkfs.ext4 /dev/volgroup0/home
@@ -44,7 +40,6 @@ luks_and_format_private() {
     mkswap /dev/sda2
     swapon /dev/sda2
 
-    echo "== Montage =="
     mount /dev/volgroup0/root /mnt
     mkdir -p /mnt/boot
     mount /dev/sda1 /mnt/boot
@@ -57,29 +52,20 @@ luks_and_format_private() {
 }
 
 mirroring() {
-    echo "== Configuration des miroirs =="
     pacman -Sy --noconfirm reflector
     reflector -c France -a 6 --sort rate --save /etc/pacman.d/mirrorlist
     pacman -Syyy --noconfirm
 }
 
 config() {
-    echo "== Installation des paquets de base =="
     pacstrap -K /mnt base linux linux-firmware systemd lvm2 efibootmgr networkmanager sudo openssh
 
-    echo "== Génération de fstab =="
     genfstab -U /mnt >> /mnt/etc/fstab
 
-    # Récupération des UUID avant chroot
     CRYPT_UUID=$(blkid -s UUID -o value /dev/sda3)
-    ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/volgroup0-root)
+    PRIVATE_UUID=$(blkid -s UUID -o value /dev/volgroup0/private)
 
-    # Passage des variables dans l'environnement chroot
-    arch-chroot /mnt /bin/bash -c "
-export CRYPT_UUID='$CRYPT_UUID'
-export ROOT_UUID='$ROOT_UUID'
-
-echo '== Configuration système =='
+    arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 hwclock --systohc
 echo 'fr_FR.UTF-8 UTF-8' >> /etc/locale.gen
@@ -88,28 +74,29 @@ echo 'LANG=fr_FR.UTF-8' > /etc/locale.conf
 echo 'KEYMAP=fr' > /etc/vconsole.conf
 echo 'pc_de_travail' > /etc/hostname
 
-echo '== mkinitcpio HOOKS =='
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)/' /etc/mkinitcpio.conf
-mkinitcpio -p linux
+echo '== crypttab =='
+echo "cryptlvm UUID=$CRYPT_UUID none luks" > /etc/crypttab
+echo "secretproject UUID=$PRIVATE_UUID none luks" >> /etc/crypttab
 
-echo '== Installation du bootloader =='
+echo '== mkinitcpio HOOKS =='
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block encrypt lvm2 filesystems fsck shutdown)/' /etc/mkinitcpio.conf
+mkinitcpio -P
+
+echo '== Bootloader systemd-boot =='
 bootctl install
 
-cat > /boot/loader/loader.conf <<BOOTEOF
+cat > /boot/loader/loader.conf <<LOADER
 default arch
 timeout 3
 editor no
-BOOTEOF
+LOADER
 
-cat > /boot/loader/entries/arch.conf <<ENTRYEOF
+cat > /boot/loader/entries/arch.conf <<ENTRY
 title   Arch Linux
 linux   /vmlinuz-linux
 initrd  /initramfs-linux.img
-options cryptdevice=UUID=\$CRYPT_UUID:cryptlvm root=UUID=\$ROOT_UUID rw
-ENTRYEOF
-
-mkdir -p /boot/EFI/BOOT
-cp /boot/EFI/systemd/systemd-bootx64.efi /boot/EFI/BOOT/BOOTX64.EFI
+options cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw
+ENTRY
 
 echo '== Environnement graphique =='
 pacman -S --noconfirm lightdm lightdm-gtk-greeter xorg i3 dmenu xterm xorg-xinit vim git wget curl nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
@@ -117,10 +104,13 @@ pacman -S --noconfirm lightdm lightdm-gtk-greeter xorg i3 dmenu xterm xorg-xinit
 echo '== Utilisateurs =='
 useradd -m -G wheel -s /bin/bash admin
 echo 'admin:azerty123' | chpasswd
-echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
-
 useradd -m -s /bin/bash study
 echo 'study:azerty123' | chpasswd
+
+echo 'root:azerty123' | chpasswd
+chsh -s /bin/bash root
+
+echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
 mkdir -p /share
 chown admin:study /share
@@ -138,13 +128,11 @@ cp /etc/i3/config /home/admin/.config/i3/config
 echo 'exec i3' > /home/admin/.xinitrc
 chown -R admin:admin /home/admin/.config /home/admin/.xinitrc
 
-echo '== Services =='
 systemctl enable lightdm
 systemctl enable NetworkManager
 systemctl enable sshd
-"
+EOF
 }
-
 
 reboot_system() {
     echo "== Démontage et redémarrage =="
@@ -152,7 +140,7 @@ reboot_system() {
     reboot
 }
 
-# == EXÉCUTION == #
+# === EXÉCUTION ===
 create_partitions
 crypt_and_format_partitions
 luks_and_format_private
@@ -160,4 +148,4 @@ mirroring
 config
 reboot_system
 
-echo "✅ Installation Arch Linux terminée sans erreur !"
+echo "✅ Installation Arch Linux terminée avec succès !"
