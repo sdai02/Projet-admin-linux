@@ -2,17 +2,7 @@
 
 set -euo pipefail
 
-# == FONCTIONS == #
-
 create_partitions() {
-    echo "== Mise à jour de la base de données des paquets =="
-    pacman -Syy --noconfirm
-
-    if [ -e /dev/sda1 ] && [ -e /dev/sda2 ] && [ -e /dev/sda3 ]; then
-        echo "Les partitions existent déjà. Ignorer la création."
-        return 0
-    fi
-
     echo "== Création des partitions GPT sur /dev/sda =="
     echo -e "label: gpt\n,1G,U\n,4G,S\n,,L" | sfdisk /dev/sda
     partprobe /dev/sda
@@ -20,15 +10,15 @@ create_partitions() {
 
 crypt_and_format_partitions() {
     echo "== Installation de cryptsetup et lvm2 =="
-    pacman -Sy cryptsetup lvm2 --noconfirm
+    pacman -Sy --noconfirm cryptsetup lvm2
 
     echo "== Chiffrement de /dev/sda3 =="
     echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
-    echo -n "azerty123" | cryptsetup open /dev/sda3 lvm -
+    echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
 
     echo "== Initialisation de LVM =="
-    pvcreate /dev/mapper/lvm
-    vgcreate volgroup0 /dev/mapper/lvm
+    pvcreate /dev/mapper/cryptlvm
+    vgcreate volgroup0 /dev/mapper/cryptlvm
 
     echo "== Création des volumes logiques =="
     lvcreate -L 30G volgroup0 -n root
@@ -41,115 +31,118 @@ crypt_and_format_partitions() {
 }
 
 luks_and_format_private() {
-    echo "== Chiffrement de volgroup0/private =="
     echo -n "azerty123" | cryptsetup luksFormat /dev/volgroup0/private -
     echo -n "azerty123" | cryptsetup open /dev/volgroup0/private secretproject -
 
-    echo "== Formatage des partitions =="
+    echo "== Formatage =="
     mkfs.fat -F32 /dev/sda1
     mkfs.ext4 /dev/volgroup0/root
     mkfs.ext4 /dev/volgroup0/home
     mkfs.ext4 /dev/volgroup0/vmsoftware
     mkfs.ext4 /dev/volgroup0/share
     mkfs.ext4 /dev/mapper/secretproject
-
-    echo "== Configuration du swap =="
     mkswap /dev/sda2
     swapon /dev/sda2
 
-    echo "== Montage des partitions =="
+    echo "== Montage =="
     mount /dev/volgroup0/root /mnt
-    mkdir -p /mnt/{boot/efi,home,vmsoftware,share}
-    mount /dev/sda1 /mnt/boot/efi
+    mkdir -p /mnt/boot
+    mount /dev/sda1 /mnt/boot
+    mkdir -p /mnt/{home,vmsoftware,share}
     mount /dev/volgroup0/home /mnt/home
     mount /dev/volgroup0/vmsoftware /mnt/vmsoftware
     mount /dev/volgroup0/share /mnt/share
-
     mkdir -p /mnt/home/private
     mount /dev/mapper/secretproject /mnt/home/private
 }
 
 mirroring() {
-    echo "== Installation et configuration de reflector =="
-    pacman -Sy reflector --noconfirm
-    reflector --country France --protocol https --latest 10 --sort rate --save /etc/pacman.d/mirrorlist
+    echo "== Configuration des miroirs =="
+    pacman -Sy --noconfirm reflector
+    reflector -c France -a 6 --sort rate --save /etc/pacman.d/mirrorlist
+    pacman -Syyy --noconfirm
 }
 
 config() {
     echo "== Installation des paquets de base =="
-    pacstrap -K /mnt base linux linux-firmware --noconfirm
+    pacstrap -K /mnt base linux linux-firmware systemd lvm2 efibootmgr networkmanager sudo openssh
 
     echo "== Génération de fstab =="
     genfstab -U /mnt >> /mnt/etc/fstab
 
-    arch-chroot /mnt /bin/bash << 'EOF'
+    # Récupération des UUID avant chroot
+    CRYPT_UUID=$(blkid -s UUID -o value /dev/sda3)
+    ROOT_UUID=$(blkid -s UUID -o value /dev/mapper/volgroup0-root)
 
-echo "== Configuration système =="
-pacman -Syy --noconfirm
+    # Passage des variables dans l'environnement chroot
+    arch-chroot /mnt /bin/bash -c "
+export CRYPT_UUID='$CRYPT_UUID'
+export ROOT_UUID='$ROOT_UUID'
 
-# Configuration clavier AZERTY pour initramfs
-echo "KEYMAP=fr" > /etc/vconsole.conf
-
+echo '== Configuration système =='
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 hwclock --systohc
-
-echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen
+echo 'fr_FR.UTF-8 UTF-8' >> /etc/locale.gen
 locale-gen
-echo "LANG=fr_FR.UTF-8" > /etc/locale.conf
+echo 'LANG=fr_FR.UTF-8' > /etc/locale.conf
+echo 'KEYMAP=fr' > /etc/vconsole.conf
+echo 'pc_de_travail' > /etc/hostname
 
-echo "pc_de_travail" > /etc/hostname
+echo '== mkinitcpio HOOKS =='
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)/' /etc/mkinitcpio.conf
+mkinitcpio -p linux
 
-echo "== Création des utilisateurs =="
+echo '== Installation du bootloader =='
+bootctl install
+
+cat > /boot/loader/loader.conf <<BOOTEOF
+default arch
+timeout 3
+editor no
+BOOTEOF
+
+cat > /boot/loader/entries/arch.conf <<ENTRYEOF
+title   Arch Linux
+linux   /vmlinuz-linux
+initrd  /initramfs-linux.img
+options cryptdevice=UUID=\$CRYPT_UUID:cryptlvm root=UUID=\$ROOT_UUID rw
+ENTRYEOF
+
+mkdir -p /boot/EFI/BOOT
+cp /boot/EFI/systemd/systemd-bootx64.efi /boot/EFI/BOOT/BOOTX64.EFI
+
+echo '== Environnement graphique =='
+pacman -S --noconfirm lightdm lightdm-gtk-greeter xorg i3 dmenu xterm xorg-xinit vim git wget curl nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
+
+echo '== Utilisateurs =='
 useradd -m -G wheel -s /bin/bash admin
-echo "admin:azerty123" | chpasswd
-echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+echo 'admin:azerty123' | chpasswd
+echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
 useradd -m -s /bin/bash study
-echo "study:azerty123" | chpasswd
+echo 'study:azerty123' | chpasswd
 
 mkdir -p /share
 chown admin:study /share
 chmod 770 /share
 
-echo "== Installation de paquets complémentaires =="
-pacman -S --noconfirm \
-    grub efibootmgr sudo networkmanager openssh \
-    vim git wget curl lightdm lightdm-gtk-greeter \
-    i3 dmenu xorg xorg-xinit xterm nitrogen picom rofi \
-    alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
-
-echo "== Configuration SSH =="
-echo -e "Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no" >> /etc/ssh/sshd_config
+echo '== SSH =='
+echo -e 'Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no' >> /etc/ssh/sshd_config
 mkdir -p /home/admin/.ssh
-ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ""
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ''
 chown -R admin:admin /home/admin/.ssh
 
-echo "== Configuration i3 =="
+echo '== Config i3 =='
 mkdir -p /home/admin/.config/i3
 cp /etc/i3/config /home/admin/.config/i3/config
-echo "exec i3" > /home/admin/.xinitrc
+echo 'exec i3' > /home/admin/.xinitrc
 chown -R admin:admin /home/admin/.config /home/admin/.xinitrc
 
-echo "== mkinitcpio HOOKS =="
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' /etc/mkinitcpio.conf
-
-echo "== Regénération de l'initramfs =="
-mkinitcpio -P
-
-echo "== Configuration GRUB =="
-sed -i 's|GRUB_CMDLINE_LINUX_DEFAULT=".*"|GRUB_CMDLINE_LINUX_DEFAULT="cryptdevice=/dev/sda3:volgroup0 root=/dev/mapper/volgroup0-root"|' /etc/default/grub
-echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
-echo 'GRUB_TERMINAL_INPUT=console' >> /etc/default/grub
-
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
-grub-mkconfig -o /boot/grub/grub.cfg
-
-echo "== Activation des services =="
+echo '== Services =='
 systemctl enable lightdm
 systemctl enable NetworkManager
 systemctl enable sshd
-
-EOF
+"
 }
 
 
@@ -159,13 +152,12 @@ reboot_system() {
     reboot
 }
 
-# == EXECUTION == #
-
+# == EXÉCUTION == #
 create_partitions
 crypt_and_format_partitions
 luks_and_format_private
 mirroring
 config
-reboot_system # <- Décommente ceci si tu veux rebooter à la fin automatiquement
+reboot_system
 
-echo "✅ Installation terminée avec succès !"
+echo "✅ Installation Arch Linux terminée sans erreur !"
