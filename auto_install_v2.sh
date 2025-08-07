@@ -8,6 +8,7 @@ detect_firmware_type() {
     else
         echo "BIOS"
     fi
+
 }
 
 detect_disk() {
@@ -17,6 +18,7 @@ detect_disk() {
         exit 1
     fi
 
+    echo "$disk"
     
 }
 create_partitions() {
@@ -31,7 +33,7 @@ create_partitions() {
             echo -e "label: gpt\n,1G,U\n,4G,S\n,,L" | sfdisk /dev/nvme0n1
             partprobe /dev/nvme0n1
         else
-            echo "Erreur : disque non reconnu."
+            echo "Erreur : disque non reconnu. create_partitions"
             exit 1
         fi
     elif [[ $1 == "BIOS" ]]; then
@@ -44,7 +46,7 @@ create_partitions() {
             echo -e "label: dos\n,4G,82\n,,83,*" | sfdisk /dev/nvme0n1
             partprobe /dev/nvme0n1
         else
-            echo "Erreur : disque non reconnu."
+            echo "Erreur : disque non reconnu. create_partitions"
             exit 1
         fi
     fi
@@ -62,7 +64,7 @@ crypt_and_format_partitions() {
         echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p3 -
         echo -n "azerty123" | cryptsetup open /dev/nvme0n1p3 cryptlvm -
     else
-        echo "Erreur : disque non reconnu."
+        echo "Erreur : disque non reconnu. crypt_and_format_partitions"
         exit 1
     fi
 
@@ -85,7 +87,7 @@ crypt_and_format_partitions() {
 luks_and_format() {
 
     if [[ $1 == UEFI ]]; then
-        if [[ $1 == sda ]]; then
+        if [[ $2 == sda ]]; then
             mkfs.fat -F32 /dev/sda1
             mkfs.ext4 /dev/volgroup0/root
             mkfs.ext4 /dev/volgroup0/home
@@ -97,7 +99,7 @@ luks_and_format() {
             mount --mkdir /dev/sda1 /mnt/boot
             mount --mkdir /dev/volgroup0/home /mnt/home
             mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        elif [[ $1 == nvme0n1 ]]; then
+        elif [[ $2 == nvme0n1 ]]; then
             mkfs.fat -F32 /dev/nvme0n1p1
             mkfs.ext4 /dev/volgroup0/root
             mkfs.ext4 /dev/volgroup0/home
@@ -114,7 +116,7 @@ luks_and_format() {
             exit 1
         fi
     elif [[ $1 == BIOS ]]; then
-        if [[ $1 == sda ]]; then
+        if [[ $2 == sda ]]; then
             mkfs.ext4 /dev/volgroup0/root
             mkfs.ext4 /dev/volgroup0/home
             mkfs.ext4 /dev/volgroup0/vmsoftware
@@ -125,7 +127,7 @@ luks_and_format() {
             mount --mkdir /dev/sda2 /mnt/boot
             mount --mkdir /dev/volgroup0/home /mnt/home
             mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        elif [[ $1 == nvme0n1 ]]; then
+        elif [[ $2 == nvme0n1 ]]; then
             mkfs.ext4 /dev/volgroup0/root
             mkfs.ext4 /dev/volgroup0/home
             mkfs.ext4 /dev/volgroup0/vmsoftware
@@ -161,7 +163,7 @@ config() {
         elif [[ $2 == nvme0n1 ]]; then
             CRYPT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p3)
         else
-            echo "Erreur : disque non reconnu."
+            echo "Erreur : disque non reconnu. config"
             exit 1
         fi
     elif [[ $1 == BIOS ]]; then
@@ -170,7 +172,7 @@ config() {
         elif [[ $2 == nvme0n1 ]]; then
             CRYPT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
         else
-            echo "Erreur : disque non reconnu."
+            echo "Erreur : disque non reconnu. config"
             exit 1
         fi
     fi
@@ -208,7 +210,7 @@ options cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw
 ENTRY
 
 echo '== Environnement graphique =='
-pacman -S --noconfirm lightdm lightdm-gtk-greeter xorg i3 dmenu xterm xorg-xinit vim git wget curl nitrogen picom rofi alacritty iproute2 firefox virtualbox virtualbox-host-modules-arch mtools
+sudo pacman -S --noconfirm plasma kde-utilities dolphin konsole firefox vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
 
 echo '== Utilisateurs =='
 useradd -m -G wheel -s /bin/bash admin
@@ -218,6 +220,12 @@ echo 'root:azerty123' | chpasswd
 chsh -s /bin/bash root
 
 echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+mkdir -p /home/admin/Documents
+mkdir -p /home/admin/Downloads
+mkdir -p /home/admin/Videos
+mkdir -p /home/admin/Music
+mkdir -p /home/admin/Pictures
+
 
 
 echo '== SSH =='
@@ -232,7 +240,7 @@ cp /etc/i3/config /home/admin/.config/i3/config
 echo 'exec i3' > /home/admin/.xinitrc
 chown -R admin:admin /home/admin/.config /home/admin/.xinitrc
 
-systemctl enable lightdm
+systemctl enable sddm
 systemctl enable NetworkManager
 systemctl enable sshd
 EOF
@@ -248,7 +256,7 @@ reboot_system() {
 disks=$(detect_disk)
 firmware_type=$(detect_firmware_type)
 create_partitions "$firmware_type" "$disks"
-crypt_and_format_partitions "$firmware_type" "$disks"
+crypt_and_format_partitions "$disks" "$firmware_type"
 luks_and_format "$firmware_type" "$disks"
 mirroring
 config "$firmware_type" "$disks"
