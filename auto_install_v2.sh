@@ -154,7 +154,7 @@ mirroring() {
 }
 
 config() {
-    pacstrap -K /mnt base linux linux-firmware 
+    pacstrap -K /mnt base linux linux-firmware systemd lvm2 efibootmgr networkmanager sudo openssh
 
     genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -248,14 +248,15 @@ echo 'LANG=fr_FR.UTF-8' > /etc/locale.conf
 echo 'KEYMAP=fr' > /etc/vconsole.conf
 echo 'pc_de_travail' > /etc/hostname
 
-echo "cryptlvm UUID=$CRYPT_UUID none luks" > /etc/crypttab
-
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block encrypt lvm2 filesystems fsck shutdown)/' /etc/mkinitcpio.conf
 mkinitcpio -P
 
-pacman -S --noconfirm grub
+pacman -S --noconfirm grub lvm2
+echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw\"|" /etc/default/grub
 grub-install --target=i386-pc /dev/$1
 grub-mkconfig -o /boot/grub/grub.cfg
+
 
 # Environnement graphique avec Hyprland
 pacman -S --noconfirm hyprland waybar rofi thunar kitty xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland plasma dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
