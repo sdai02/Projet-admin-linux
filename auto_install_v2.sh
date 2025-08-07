@@ -154,7 +154,7 @@ mirroring() {
 }
 
 config() {
-    pacstrap -K /mnt base linux linux-firmware systemd lvm2 efibootmgr networkmanager sudo openssh
+    pacstrap -K /mnt base linux linux-firmware 
 
     genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -254,7 +254,7 @@ sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modc
 mkinitcpio -P
 
 pacman -S --noconfirm grub
-grub-install --target=i386-pc /dev/$disk
+grub-install --target=i386-pc /dev/$1
 grub-mkconfig -o /boot/grub/grub.cfg
 
 # Environnement graphique avec Hyprland
