@@ -39,11 +39,11 @@ create_partitions() {
     elif [[ $1 == "BIOS" ]]; then
         if [[ $2 == sda ]]; then
             echo "== Création des partitions MBR sur /dev/sda =="
-            echo -e "label: dos\n,4G,82\n,,83,*" | sfdisk /dev/sda
+            echo -e "label: dos\n1G,83,*\n4G,82\n,83" | sfdisk /dev/sda
             partprobe /dev/sda
         elif [[ $2 == nvme0n1 ]]; then
             echo "== Création des partitions MBR sur /dev/nvme0n1 =="
-            echo -e "label: dos\n,4G,82\n,,83,*" | sfdisk /dev/nvme0n1
+            echo -e "label: dos\n1G,83,*\n4G,82\n,83" | sfdisk /dev/nvme0n1
             partprobe /dev/nvme0n1
         else
             echo "Erreur : disque non reconnu. create_partitions"
@@ -55,113 +55,64 @@ create_partitions() {
 crypt_and_format_partitions() {
     pacman -Sy --noconfirm cryptsetup lvm2
 
-    if [[ $2 == "UEFI" ]]; then
-
-        if [[ $1 == sda ]]; then
-            echo "== Chiffrement de /dev/sda3 =="
-            echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
-            echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
-        elif [[ $1 == nvme0n1 ]]; then
-            echo "== Chiffrement de /dev/nvme0n1p3 =="
-            echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p3 -
-            echo -n "azerty123" | cryptsetup open /dev/nvme0n1p3 cryptlvm -
-        else
-            echo "Erreur : disque non reconnu. crypt_and_format_partitions"
-            exit 1
-        fi
-
-        pvcreate /dev/mapper/cryptlvm
-        vgcreate volgroup0 /dev/mapper/cryptlvm
-
-    
-        lvcreate -L 30G volgroup0 -n root
-        lvcreate -L 10G volgroup0 -n vmsoftware
-        lvcreate -l 100%FREE volgroup0 -n home
-    elif [[ $2 == "BIOS" ]]; then
-
-        if [[ $1 == sda ]]; then
-            echo "== Chiffrement de /dev/sda2 =="
-            echo -n "azerty123" | cryptsetup luksFormat /dev/sda2 -
-            echo -n "azerty123" | cryptsetup open /dev/sda2 cryptlvm -
-        elif [[ $1 == nvme0n1 ]]; then
-            echo "== Chiffrement de /dev/nvme0n1p2 =="
-            echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p2 -
-            echo -n "azerty123" | cryptsetup open /dev/nvme0n1p2 cryptlvm -
-        else
-            echo "Erreur : disque non reconnu. crypt_and_format_partitions"
-            exit 1
-        fi
-
-        pvcreate /dev/mapper/cryptlvm
-        vgcreate volgroup0 /dev/mapper/cryptlvm
-
-        lvcreate -L 30G volgroup0 -n root
-        lvcreate -L 10G volgroup0 -n vmsoftware
-        lvcreate -l 100%FREE volgroup0 -n home
+    if [[ $1 == sda ]]; then
+        echo "== Chiffrement de /dev/sda3 =="
+        echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
+        echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
+    elif [[ $1 == nvme0n1 ]]; then
+        echo "== Chiffrement de /dev/nvme0n1p3 =="
+        echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p3 -
+        echo -n "azerty123" | cryptsetup open /dev/nvme0n1p3 cryptlvm -
+    else
+        echo "Erreur : disque non reconnu. crypt_and_format_partitions"
+        exit 1
     fi
+
+    pvcreate /dev/mapper/cryptlvm
+    vgcreate volgroup0 /dev/mapper/cryptlvm
+
+
+    lvcreate -L 30G volgroup0 -n root
+    lvcreate -L 10G volgroup0 -n vmsoftware
+    lvcreate -l 100%FREE volgroup0 -n home
+    
+    
 
     vgchange -ay
 }
 
 luks_and_format() {
 
-    if [[ $1 == UEFI ]]; then
-        if [[ $2 == sda ]]; then
-            mkfs.fat -F32 /dev/sda1
-            mkfs.ext4 /dev/volgroup0/root
-            mkfs.ext4 /dev/volgroup0/home
-            mkfs.ext4 /dev/volgroup0/vmsoftware
-            mkswap /dev/sda2
-            swapon /dev/sda2
+    if [[ $1 == sda ]]; then
+        mkfs.fat -F32 /dev/sda1
+        mkfs.ext4 /dev/volgroup0/root
+        mkfs.ext4 /dev/volgroup0/home
+        mkfs.ext4 /dev/volgroup0/vmsoftware
+        mkswap /dev/sda2
+        swapon /dev/sda2
 
-            mount /dev/volgroup0/root /mnt
-            mount --mkdir /dev/sda1 /mnt/boot
-            mount --mkdir /dev/volgroup0/home /mnt/home
-            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        elif [[ $2 == nvme0n1 ]]; then
-            mkfs.fat -F32 /dev/nvme0n1p1
-            mkfs.ext4 /dev/volgroup0/root
-            mkfs.ext4 /dev/volgroup0/home
-            mkfs.ext4 /dev/volgroup0/vmsoftware
-            mkswap /dev/nvme0n1p2
-            swapon /dev/nvme0n1p2
+        mount /dev/volgroup0/root /mnt
+        mount --mkdir /dev/sda1 /mnt/boot
+        mount --mkdir /dev/volgroup0/home /mnt/home
+        mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+    elif [[ $1 == nvme0n1 ]]; then
+        mkfs.fat -F32 /dev/nvme0n1p1
+        mkfs.ext4 /dev/volgroup0/root
+        mkfs.ext4 /dev/volgroup0/home
+        mkfs.ext4 /dev/volgroup0/vmsoftware
+        mkswap /dev/nvme0n1p2
+        swapon /dev/nvme0n1p2
 
-            mount /dev/volgroup0/root /mnt
-            mount --mkdir /dev/nvme0n1p1 /mnt/boot
-            mount --mkdir /dev/volgroup0/home /mnt/home
-            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        else
-            echo "Erreur : disque non reconnu."
-            exit 1
-        fi
-    elif [[ $1 == BIOS ]]; then
-        if [[ $2 == sda ]]; then
-            mkfs.ext4 /dev/volgroup0/root
-            mkfs.ext4 /dev/volgroup0/home
-            mkfs.ext4 /dev/volgroup0/vmsoftware
-            mkswap /dev/sda1
-            swapon /dev/sda1
-            mount /dev/volgroup0/root /mnt
-            mkdir -p /mnt/boot
-            mount --mkdir /dev/sda2 /mnt/boot
-            mount --mkdir /dev/volgroup0/home /mnt/home
-            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        elif [[ $2 == nvme0n1 ]]; then
-            mkfs.ext4 /dev/volgroup0/root
-            mkfs.ext4 /dev/volgroup0/home
-            mkfs.ext4 /dev/volgroup0/vmsoftware
-            mkswap /dev/nvme0n1p1
-            swapon /dev/nvme0n1p1
-            mount /dev/volgroup0/root /mnt
-            mkdir -p /mnt/boot
-            mount --mkdir /dev/nvme0n1p2 /mnt/boot
-            mount --mkdir /dev/volgroup0/home /mnt/home
-            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-        else
-            echo "Erreur : disque non reconnu."
-            exit 1
-        fi
+        mount /dev/volgroup0/root /mnt
+        mount --mkdir /dev/nvme0n1p1 /mnt/boot
+        mount --mkdir /dev/volgroup0/home /mnt/home
+        mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+    else
+        echo "Erreur : disque non reconnu."
+        exit 1
     fi
+
+    
 }
 
 mirroring() {
@@ -176,25 +127,15 @@ config() {
     genfstab -U /mnt >> /mnt/etc/fstab
 
 
-    if [[ $1 == UEFI ]]; then
-        if [[ $2 == sda ]]; then
-            CRYPT_UUID=$(blkid -s UUID -o value /dev/sda3)
-        elif [[ $2 == nvme0n1 ]]; then
-            CRYPT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p3)
-        else
-            echo "Erreur : disque non reconnu. config"
-            exit 1
-        fi
-    elif [[ $1 == BIOS ]]; then
-        if [[ $2 == sda ]]; then
-            CRYPT_UUID=$(blkid -s UUID -o value /dev/sda2)
-        elif [[ $2 == nvme0n1 ]]; then
-            CRYPT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2)
-        else
-            echo "Erreur : disque non reconnu. config"
-            exit 1
-        fi
+    if [[ $1 == sda ]]; then
+        CRYPT_UUID=$(blkid -s UUID -o value /dev/sda3)
+    elif [[ $1 == nvme0n1 ]]; then
+        CRYPT_UUID=$(blkid -s UUID -o value /dev/nvme0n1p3)
+    else
+        echo "Erreur : disque non reconnu. config"
+        exit 1
     fi
+    
 
     arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
@@ -275,10 +216,10 @@ reboot_system() {
 disks=$(detect_disk)
 firmware_type=$(detect_firmware_type)
 create_partitions "$firmware_type" "$disks"
-crypt_and_format_partitions "$firmware_type" "$disks"
-luks_and_format "$firmware_type" "$disks"
+crypt_and_format_partitions "$disks"
+luks_and_format "$disks"
 mirroring
-config "$firmware_type" "$disks"
+config "$disks"
 reboot_system
 
 echo "✅ Installation Arch Linux terminée avec succès !"
