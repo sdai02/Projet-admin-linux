@@ -208,8 +208,6 @@ echo 'root:azerty123' | chpasswd
 chsh -s /bin/bash root
 echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-mkdir -p /home/admin/{Documents,Downloads,Videos,Music,Pictures}
-
 # SSH
 echo -e 'Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no' >> /etc/ssh/sshd_config
 mkdir -p /home/admin/.ssh
@@ -267,7 +265,6 @@ echo 'root:azerty123' | chpasswd
 chsh -s /bin/bash root
 echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-mkdir -p /home/admin/{Documents,Downloads,Videos,Music,Pictures}
 
 # SSH
 echo -e 'Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no' >> /etc/ssh/sshd_config
