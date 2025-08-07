@@ -55,27 +55,46 @@ create_partitions() {
 crypt_and_format_partitions() {
     pacman -Sy --noconfirm cryptsetup lvm2
 
-    if [[ $1 == sda ]]; then
-        echo "== Chiffrement de /dev/sda3 =="
-        echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
-        echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
-    elif [[ $1 == nvme0n1 ]]; then
-        echo "== Chiffrement de /dev/nvme0n1p3 =="
-        echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p3 -
-        echo -n "azerty123" | cryptsetup open /dev/nvme0n1p3 cryptlvm -
-    else
-        echo "Erreur : disque non reconnu. crypt_and_format_partitions"
-        exit 1
-    fi
-
-    pvcreate /dev/mapper/cryptlvm
-    vgcreate volgroup0 /dev/mapper/cryptlvm
-
     if [[ $2 == "UEFI" ]]; then
+
+        if [[ $1 == sda ]]; then
+            echo "== Chiffrement de /dev/sda3 =="
+            echo -n "azerty123" | cryptsetup luksFormat /dev/sda3 -
+            echo -n "azerty123" | cryptsetup open /dev/sda3 cryptlvm -
+        elif [[ $1 == nvme0n1 ]]; then
+            echo "== Chiffrement de /dev/nvme0n1p3 =="
+            echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p3 -
+            echo -n "azerty123" | cryptsetup open /dev/nvme0n1p3 cryptlvm -
+        else
+            echo "Erreur : disque non reconnu. crypt_and_format_partitions"
+            exit 1
+        fi
+
+        pvcreate /dev/mapper/cryptlvm
+        vgcreate volgroup0 /dev/mapper/cryptlvm
+
+    
         lvcreate -L 30G volgroup0 -n root
         lvcreate -L 10G volgroup0 -n vmsoftware
         lvcreate -l 100%FREE volgroup0 -n home
     elif [[ $2 == "BIOS" ]]; then
+
+        if [[ $1 == sda ]]; then
+            echo "== Chiffrement de /dev/sda2 =="
+            echo -n "azerty123" | cryptsetup luksFormat /dev/sda2 -
+            echo -n "azerty123" | cryptsetup open /dev/sda2 cryptlvm -
+        elif [[ $1 == nvme0n1 ]]; then
+            echo "== Chiffrement de /dev/nvme0n1p2 =="
+            echo -n "azerty123" | cryptsetup luksFormat /dev/nvme0n1p2 -
+            echo -n "azerty123" | cryptsetup open /dev/nvme0n1p2 cryptlvm -
+        else
+            echo "Erreur : disque non reconnu. crypt_and_format_partitions"
+            exit 1
+        fi
+
+        pvcreate /dev/mapper/cryptlvm
+        vgcreate volgroup0 /dev/mapper/cryptlvm
+
         lvcreate -L 30G volgroup0 -n root
         lvcreate -L 10G volgroup0 -n vmsoftware
         lvcreate -l 100%FREE volgroup0 -n home
@@ -210,7 +229,7 @@ options cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw
 ENTRY
 
 echo '== Environnement graphique =='
-sudo pacman -S --noconfirm plasma kde-utilities dolphin konsole firefox vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
+sudo pacman -S --noconfirm plasma kde-utilities dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
 
 echo '== Utilisateurs =='
 useradd -m -G wheel -s /bin/bash admin
@@ -256,7 +275,7 @@ reboot_system() {
 disks=$(detect_disk)
 firmware_type=$(detect_firmware_type)
 create_partitions "$firmware_type" "$disks"
-crypt_and_format_partitions "$disks" "$firmware_type"
+crypt_and_format_partitions "$firmware_type" "$disks"
 luks_and_format "$firmware_type" "$disks"
 mirroring
 config "$firmware_type" "$disks"
