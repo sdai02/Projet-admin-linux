@@ -200,7 +200,7 @@ options cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw
 ENTRY
 
 # Environnement graphique avec Hyprland
-pacman -S --noconfirm hyprland waybar rofi thunar kitty xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland plasma dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
+pacman -S --noconfirm hyprland waybar rofi thunar kitty xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland plasma dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools lvm2
 
 useradd -m -G wheel -s /bin/bash admin
 echo 'admin:azerty123' | chpasswd
