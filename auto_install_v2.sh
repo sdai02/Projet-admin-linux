@@ -39,11 +39,11 @@ create_partitions() {
     elif [[ $1 == "BIOS" ]]; then
         if [[ $2 == sda ]]; then
             echo "== Création des partitions MBR sur /dev/sda =="
-            echo -e "label: dos\n1G,83,*\n4G,82\n,83" | sfdisk /dev/sda
+            echo -e "label: dos\n,1G,83\n,4G,82\n,,83" | sfdisk /dev/sda
             partprobe /dev/sda
         elif [[ $2 == nvme0n1 ]]; then
             echo "== Création des partitions MBR sur /dev/nvme0n1 =="
-            echo -e "label: dos\n1G,83,*\n4G,82\n,83" | sfdisk /dev/nvme0n1
+            echo -e "label: dos\n,1G,83\n,4G,82\n,,83" | sfdisk /dev/nvme0n1
             partprobe /dev/nvme0n1
         else
             echo "Erreur : disque non reconnu. create_partitions"
@@ -83,32 +83,64 @@ crypt_and_format_partitions() {
 
 luks_and_format() {
 
-    if [[ $1 == sda ]]; then
-        mkfs.fat -F32 /dev/sda1
-        mkfs.ext4 /dev/volgroup0/root
-        mkfs.ext4 /dev/volgroup0/home
-        mkfs.ext4 /dev/volgroup0/vmsoftware
-        mkswap /dev/sda2
-        swapon /dev/sda2
+    if [[ $1 == "UEFI" ]]; then
+        if [[ $2 == "sda" ]]; then
+            mkfs.fat -F32 /dev/sda1
+            mkfs.ext4 /dev/volgroup0/root
+            mkfs.ext4 /dev/volgroup0/home
+            mkfs.ext4 /dev/volgroup0/vmsoftware
+            mkswap /dev/sda2
+            swapon /dev/sda2
 
-        mount /dev/volgroup0/root /mnt
-        mount --mkdir /dev/sda1 /mnt/boot
-        mount --mkdir /dev/volgroup0/home /mnt/home
-        mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
-    elif [[ $1 == nvme0n1 ]]; then
-        mkfs.fat -F32 /dev/nvme0n1p1
-        mkfs.ext4 /dev/volgroup0/root
-        mkfs.ext4 /dev/volgroup0/home
-        mkfs.ext4 /dev/volgroup0/vmsoftware
-        mkswap /dev/nvme0n1p2
-        swapon /dev/nvme0n1p2
+            mount /dev/volgroup0/root /mnt
+            mount --mkdir /dev/sda1 /mnt/boot
+            mount --mkdir /dev/volgroup0/home /mnt/home
+            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+        elif [[ $2 == "nvme0n1" ]]; then
+            mkfs.fat -F32 /dev/nvme0n1p1
+            mkfs.ext4 /dev/volgroup0/root
+            mkfs.ext4 /dev/volgroup0/home
+            mkfs.ext4 /dev/volgroup0/vmsoftware
+            mkswap /dev/nvme0n1p2
+            swapon /dev/nvme0n1p2
 
-        mount /dev/volgroup0/root /mnt
-        mount --mkdir /dev/nvme0n1p1 /mnt/boot
-        mount --mkdir /dev/volgroup0/home /mnt/home
-        mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+            mount /dev/volgroup0/root /mnt
+            mount --mkdir /dev/nvme0n1p1 /mnt/boot
+            mount --mkdir /dev/volgroup0/home /mnt/home
+            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+        else
+            echo "Erreur : disque non reconnu."
+            exit 1
+        fi
+    elif [[ $1 == "BIOS" ]]; then
+        if [[ $2 == "sda" ]]; then
+            mkfs.ext4 /dev/sda1
+            mkfs.ext4 /dev/volgroup0/root
+            mkfs.ext4 /dev/volgroup0/home
+            mkfs.ext4 /dev/volgroup0/vmsoftware
+            mkswap /dev/sda2
+            swapon /dev/sda2
+            mount /dev/volgroup0/root /mnt
+            mount --mkdir /dev/sda1 /mnt/boot
+            mount --mkdir /dev/volgroup0/home /mnt/home
+            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+        elif [[ $2 == "nvme0n1" ]]; then
+            mkfs.ext4 /dev/nvme0n1p1
+            mkfs.ext4 /dev/volgroup0/root
+            mkfs.ext4 /dev/volgroup0/home
+            mkfs.ext4 /dev/volgroup0/vmsoftware
+            mkswap /dev/nvme0n1p2
+            swapon /dev/nvme0n1p2
+            mount /dev/volgroup0/root /mnt
+            mount --mkdir /dev/nvme0n1p1 /mnt/boot
+            mount --mkdir /dev/volgroup0/home /mnt/home
+            mount --mkdir /dev/volgroup0/vmsoftware /mnt/vmsoftware
+        else
+            echo "Erreur : disque non reconnu."
+            exit 1
+        fi
     else
-        echo "Erreur : disque non reconnu."
+        echo "Erreur : type de firmware non reconnu."
         exit 1
     fi
 
@@ -136,8 +168,9 @@ config() {
         exit 1
     fi
     
+ if [[ "$2" == "UEFI" ]]; then
 
-    arch-chroot /mnt /bin/bash <<EOF
+        arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 hwclock --systohc
 echo 'fr_FR.UTF-8 UTF-8' >> /etc/locale.gen
@@ -146,14 +179,11 @@ echo 'LANG=fr_FR.UTF-8' > /etc/locale.conf
 echo 'KEYMAP=fr' > /etc/vconsole.conf
 echo 'pc_de_travail' > /etc/hostname
 
-echo '== crypttab =='
 echo "cryptlvm UUID=$CRYPT_UUID none luks" > /etc/crypttab
 
-echo '== mkinitcpio HOOKS =='
 sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block encrypt lvm2 filesystems fsck shutdown)/' /etc/mkinitcpio.conf
 mkinitcpio -P
 
-echo '== Bootloader systemd-boot =='
 bootctl install
 
 cat > /boot/loader/loader.conf <<LOADER
@@ -169,42 +199,107 @@ initrd  /initramfs-linux.img
 options cryptdevice=UUID=$CRYPT_UUID:cryptlvm root=/dev/mapper/volgroup0-root rw
 ENTRY
 
-echo '== Environnement graphique =='
-sudo pacman -S --noconfirm plasma kde-utilities dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
+# Environnement graphique avec Hyprland
+pacman -S --noconfirm hyprland waybar rofi thunar kitty xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland plasma dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
 
-echo '== Utilisateurs =='
 useradd -m -G wheel -s /bin/bash admin
 echo 'admin:azerty123' | chpasswd
-
 echo 'root:azerty123' | chpasswd
 chsh -s /bin/bash root
-
 echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
-mkdir -p /home/admin/Documents
-mkdir -p /home/admin/Downloads
-mkdir -p /home/admin/Videos
-mkdir -p /home/admin/Music
-mkdir -p /home/admin/Pictures
 
+mkdir -p /home/admin/{Documents,Downloads,Videos,Music,Pictures}
 
-
-echo '== SSH =='
+# SSH
 echo -e 'Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no' >> /etc/ssh/sshd_config
 mkdir -p /home/admin/.ssh
 ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ''
 chown -R admin:admin /home/admin/.ssh
 
-echo '== Config i3 =='
-mkdir -p /home/admin/.config/i3
-cp /etc/i3/config /home/admin/.config/i3/config
-echo 'exec i3' > /home/admin/.xinitrc
-chown -R admin:admin /home/admin/.config /home/admin/.xinitrc
-
-systemctl enable sddm
-systemctl enable NetworkManager
-systemctl enable sshd
-EOF
+# Hyprland config
+mkdir -p /home/admin/.config/hypr
+cat > /home/admin/.config/hypr/hyprland.conf <<HYPR
+exec-once = waybar &
+exec-once = kitty &
+monitor=,preferred,auto,1
+input {
+    kb_layout = fr
 }
+general {
+    gaps_in = 5
+    gaps_out = 10
+}
+HYPR
+
+# Pas besoin de .xinitrc, sddm va lancer Hyprland via /usr/share/wayland-sessions
+chown -R admin:admin /home/admin/.config
+
+systemctl enable sddm NetworkManager sshd
+EOF
+
+    elif [[ "$2" == "BIOS" ]]; then
+
+        arch-chroot /mnt /bin/bash <<EOF
+ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
+hwclock --systohc
+echo 'fr_FR.UTF-8 UTF-8' >> /etc/locale.gen
+locale-gen
+echo 'LANG=fr_FR.UTF-8' > /etc/locale.conf
+echo 'KEYMAP=fr' > /etc/vconsole.conf
+echo 'pc_de_travail' > /etc/hostname
+
+echo "cryptlvm UUID=$CRYPT_UUID none luks" > /etc/crypttab
+
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect keyboard keymap consolefont modconf block encrypt lvm2 filesystems fsck shutdown)/' /etc/mkinitcpio.conf
+mkinitcpio -P
+
+pacman -S --noconfirm grub
+grub-install --target=i386-pc /dev/$disk
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Environnement graphique avec Hyprland
+pacman -S --noconfirm hyprland waybar rofi thunar kitty xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland plasma dolphin konsole firefox unzip gzip vim git wget curl pipewire wireplumber sddm iproute2 virtualbox virtualbox-host-modules-arch mtools
+
+useradd -m -G wheel -s /bin/bash admin
+echo 'admin:azerty123' | chpasswd
+echo 'root:azerty123' | chpasswd
+chsh -s /bin/bash root
+echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+
+mkdir -p /home/admin/{Documents,Downloads,Videos,Music,Pictures}
+
+# SSH
+echo -e 'Port 6769\nPermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no' >> /etc/ssh/sshd_config
+mkdir -p /home/admin/.ssh
+ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ''
+chown -R admin:admin /home/admin/.ssh
+
+# Hyprland config
+mkdir -p /home/admin/.config/hypr
+cat > /home/admin/.config/hypr/hyprland.conf <<HYPR
+exec-once = waybar &
+exec-once = kitty &
+monitor=,preferred,auto,1
+input {
+    kb_layout = fr
+}
+general {
+    gaps_in = 5
+    gaps_out = 10
+}
+HYPR
+
+chown -R admin:admin /home/admin/.config
+
+systemctl enable sddm NetworkManager sshd
+EOF
+
+    else
+        echo "Erreur : type de firmware inconnu."
+        exit 1
+    fi
+}
+
 
 reboot_system() {
     echo "== Démontage et redémarrage =="
@@ -217,9 +312,9 @@ disks=$(detect_disk)
 firmware_type=$(detect_firmware_type)
 create_partitions "$firmware_type" "$disks"
 crypt_and_format_partitions "$disks"
-luks_and_format "$disks"
+luks_and_format "$firmware_type" "$disks"
 mirroring
-config "$disks"
+config "$disks" "$firmware_type"
 reboot_system
 
 echo "✅ Installation Arch Linux terminée avec succès !"
