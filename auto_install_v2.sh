@@ -214,20 +214,6 @@ mkdir -p /home/admin/.ssh
 ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ''
 chown -R admin:admin /home/admin/.ssh
 
-# Hyprland config
-mkdir -p /home/admin/.config/hypr
-cat > /home/admin/.config/hypr/hyprland.conf <<HYPR
-exec-once = waybar &
-exec-once = kitty &
-monitor=,preferred,auto,1
-input {
-    kb_layout = fr
-}
-general {
-    gaps_in = 5
-    gaps_out = 10
-}
-HYPR
 
 # Pas besoin de .xinitrc, sddm va lancer Hyprland via /usr/share/wayland-sessions
 chown -R admin:admin /home/admin/.config
@@ -272,20 +258,6 @@ mkdir -p /home/admin/.ssh
 ssh-keygen -t ed25519 -f /home/admin/.ssh/id_ed25519 -N ''
 chown -R admin:admin /home/admin/.ssh
 
-# Hyprland config
-mkdir -p /home/admin/.config/hypr
-cat > /home/admin/.config/hypr/hyprland.conf <<HYPR
-exec-once = waybar &
-exec-once = kitty &
-monitor=,preferred,auto,1
-input {
-    kb_layout = fr
-}
-general {
-    gaps_in = 5
-    gaps_out = 10
-}
-HYPR
 
 chown -R admin:admin /home/admin/.config
 
